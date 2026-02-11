@@ -15,7 +15,7 @@
 }
 
 @font-face {
-  font-family: "Barlow Condensed";
+  font-family: "Barlow-Condensed";
   src: url("/fonts/BarlowCondensed-Thin.woff2") format("woff2");
   font-weight: 100;
   font-style: normal;
@@ -23,7 +23,7 @@
 }
 
 @font-face {
-  font-family: "Lamoric Rowen";
+  font-family: "Lamoric-Rowen";
   src: url("/fonts/LamoricRowenTTF.woff2") format("woff2");
   font-weight: 400;
   font-style: normal;
@@ -69,11 +69,32 @@ body {
   color: var(--color-text-primary);
   font-family: "Barlow", sans-serif;
   font-weight: 400;
+  font-size: var(--font-sm);
 }
 #root {
-  padding: var(--space-3);
+  padding: var(--space-2);
   display: flex;
   justify-content: center;
   align-items: center;
   height: 100vh;
+}
+/* Tablet: desde 769px hasta 1024px */
+@media (min-width: 769px) and (max-width: 1024px) {
+  #root {
+    padding-inline: var(--space-1);
+  }
+}
+/* Mobile: hasta 768px */
+@media (max-width: 768px) {
+  #root {
+    padding-inline: 0px;
+  }
+}
+.highlight {
+  font-family: Lamoric-Rowen;
+  color: var(--color-text-primary);
+  letter-spacing: 1px;
+}
+.highlight:hover {
+  color: var(--color-accent);
 }
