@@ -3,7 +3,7 @@
 /* ============================= */
 .layout {
   width: 100%;
-  height: calc(100vh - 32px);
+  height: calc(100vh - 128px);
   display: flex;
   justify-content: center;
   align-items: center;
@@ -32,7 +32,7 @@
   transform-origin: center center; /* rotación desde el centro */
   white-space: nowrap; /* evita salto de línea */
   position: absolute;
-  bottom: 64px; /* posición desde la base del wrapper */
+  bottom: 112px; /* posición desde la base del wrapper */
   color: var(--color-accent);
 }
 
@@ -45,8 +45,7 @@
   height: 100%;
   width: 100%;
   display: flex;
-  border: 1px solid var(--color-text-secondary);
-  border-radius: 8px;
+  background-color: var(--color-bg);
 }
 
 /* ----------------------------- */
@@ -122,11 +121,12 @@
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: var(--space-2);
+  gap: var(--space-1);
   cursor: pointer;
 }
 .proyect__container {
   display: flex;
+  justify-content: flex-end;
   gap: var(--space-1);
 }
 
@@ -231,7 +231,6 @@
   .proyect {
     max-width: 400px;
     opacity: 100%;
-    gap: var(--space-1);
   }
   .proyect__id {
     font-size: var(--font-lg);
@@ -282,7 +281,6 @@
   .proyect {
     max-width: 200px;
     opacity: 100%;
-    gap: 0;
   }
   .proyect__id {
     font-size: var(--font-md);

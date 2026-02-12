@@ -1,54 +1,73 @@
 import { useRef, useEffect } from "react";
 import * as THREE from "three";
 
-// Componente principal que renderiza un fondo animado usando Three.js y shaders
-export default function MainBackground() {
+export default function CinematicParticleBackground() {
   // Referencia al div donde se montará el canvas de Three.js
   const mountRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!mountRef.current) return; // Salimos si el div no está disponible
+    // Salir si el div aún no existe
+    if (!mountRef.current) return;
 
+    // Contenedor y tamaño inicial
     const container = mountRef.current;
-
-    // Obtenemos las dimensiones iniciales del contenedor
     const width = container.offsetWidth || window.innerWidth;
     const height = container.offsetHeight || window.innerHeight;
 
-    // Creamos la escena de Three.js
+    // Crear la escena y cámara ortográfica
     const scene = new THREE.Scene();
-    // Cámara ortográfica simple
     const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
-    // Renderer de WebGL con transparencia y antialiasing
-    const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+    // Configuración del renderer
+    const renderer = new THREE.WebGLRenderer({
+      alpha: true, // fondo transparente
+      antialias: false, // sin suavizado para mejorar rendimiento
+      powerPreference: "high-performance", // prioriza GPU
+    });
     renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Retina friendly
-    container.appendChild(renderer.domElement); // Agregamos el canvas al div
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    container.appendChild(renderer.domElement);
 
-    // --- VERTEX SHADER ---
+    // ---- GEOMETRÍA DE PARTÍCULAS (DINÁMICO SEGÚN DISPOSITIVO) ----
+    let count = 400000; // Default Desktop
+    if (window.innerWidth <= 768) {
+      count = 200000; // Mobile
+    } else if (window.innerWidth <= 1024) {
+      count = 300000; // Tablet
+    }
+
+    const geometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(count * 3); // X, Y, Z
+    const uvs = new Float32Array(count * 2); // coordenadas UV
+
+    // Inicializar posiciones y UVs aleatorias
+    for (let i = 0; i < count; i++) {
+      positions[i * 3] = Math.random() * 2.2 - 1.1; // X [-1.1, 1.1]
+      positions[i * 3 + 1] = Math.random() * 2.2 - 1.1; // Y [-1.1, 1.1]
+      positions[i * 3 + 2] = 0; // Z = 0 (fondo 2D)
+      uvs[i * 2] = (positions[i * 3] + 1.1) / 2.2; // normalizar UV X
+      uvs[i * 2 + 1] = (positions[i * 3 + 1] + 1.1) / 2.2; // normalizar UV Y
+    }
+
+    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
+
+    // ---- SHADERS ----
     const vertexShader = `
-      varying vec2 vUv;
-      void main() {
-        vUv = uv; // Guardamos coordenadas UV para el fragment shader
-        gl_Position = vec4(position, 1.0); // Posición de los vértices
-      }
-    `;
-
-    // --- FRAGMENT SHADER ---
-    const fragmentShader = `
       precision highp float;
-
-      // Uniforms que controlan tiempo, resolución, interacción y ruido
+      varying vec2 vUv;         // pasa UV al fragment shader
+      varying float vBrightness; // brillo de la partícula
       uniform float uTime;
-      uniform vec2 uResolution;
-      uniform vec2 uSeed;
       uniform vec2 uMouse;
-      uniform vec2 uClickPos;
-      uniform float uClickTime;
-      varying vec2 vUv;
+      uniform vec2 uResolution;
 
-      // Funciones de ruido
+      uniform vec2 uClickPos[5];
+      uniform float uClickTime[5];
+
+      uniform vec2 uAutoPos[5];
+      uniform float uAutoTime[5];
+
+      // Funciones para ruido Simplex
       vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
       vec2 mod289(vec2 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
       vec3 permute(vec3 x) { return mod289(((x*34.0)+1.0)*x); }
@@ -76,89 +95,143 @@ export default function MainBackground() {
       }
 
       void main() {
-        vec2 uv = vUv;
-        vec2 ratio = vec2(uResolution.x / uResolution.y, 1.0);
-        vec2 currentP = uv * ratio;
+        vUv = uv;
+        vec3 pos = position;
 
-        // --- EFECTO ONDA (CLICK) ---
-        float timeSinceClick = uTime - uClickTime;
-        float waveInput = 0.0;
-        if(timeSinceClick < 2.0) {
-            float waveSpeed = 0.8;
-            float distToClick = distance(currentP, uClickPos * ratio);
-            // Crea un anillo que se expande
-            float circle = abs(distToClick - timeSinceClick * waveSpeed);
-            // El ripple se difumina con la distancia y el tiempo
-            float ripple = smoothstep(0.15, 0.0, circle) * exp(-timeSinceClick * 1.5);
-            waveInput = ripple * 0.12; 
+        // Ajuste de aspecto según resolución
+        float ratio = uResolution.x / uResolution.y;
+        vec2 aspectUv = (uv - 0.5) * vec2(ratio, 1.0);
+
+        // Ruido para movimiento suave
+        float n = snoise(aspectUv * 0.7 + uTime * 0.04);
+        float n2 = snoise(aspectUv * 1.5 - uTime * 0.02);
+        pos.x += n * 0.08;
+        pos.y += n2 * 0.08;
+
+        // Interacción con el mouse
+        vec2 aspectMouse = (uMouse - 0.5) * vec2(ratio, 1.0);
+        float distMouse = distance(aspectUv, aspectMouse);
+        float mouseInertia = smoothstep(0.35, 0.0, distMouse);
+        pos.xy += normalize(aspectUv - aspectMouse + 0.001) * mouseInertia * 0.04;
+
+        vBrightness = 0.0;
+
+        // Efecto de clics recientes
+        for(int i = 0; i < 5; i++) {
+          float tClick = max(uTime - uClickTime[i], 0.0);
+          float fadeClick = smoothstep(4.0, 3.0, tClick);
+          vec2 aClick = (uClickPos[i] - 0.5) * vec2(ratio, 1.0);
+          float dClick = distance(aspectUv, aClick);
+          float impactClick = exp(-pow((dClick - tClick * 0.8) / 0.25, 2.0));
+          float attenClick = exp(-tClick * 0.7) * fadeClick;
+          vBrightness += impactClick * attenClick;
+          pos.xy += normalize(aspectUv - aClick + 0.0001) * impactClick * attenClick * 0.07;
         }
 
-        // --- INTERACTIVIDAD MOUSE ---
-        vec2 mouseP = uMouse * ratio;
-        float distMouse = distance(currentP, mouseP);
-        float mouseInertia = smoothstep(0.6, 0.0, distMouse);
-        vec2 mouseOffset = normalize(currentP - mouseP + 0.001) * mouseInertia * 0.08;
+        // Efecto de ondas automáticas
+        for(int i = 0; i < 5; i++) {
+          float tAuto = max(uTime - uAutoTime[i], 0.0);
+          float fadeAuto = smoothstep(5.0, 4.0, tAuto);
+          vec2 aAuto = (uAutoPos[i] - 0.5) * vec2(ratio, 1.0);
+          float dAuto = distance(aspectUv, aAuto);
+          float impactAuto = exp(-pow((dAuto - tAuto * 0.7) / 0.35, 2.0));
+          float attenAuto = exp(-tAuto * 0.5) * fadeAuto;
+          vBrightness += impactAuto * attenAuto;
+          pos.xy += normalize(aspectUv - aAuto + 0.0001) * impactAuto * attenAuto * 0.06;
+        }
 
-        // --- LOOK MARMOLADO + ONDA ---
-        vec2 p = (uv - 0.5) * ratio * 1.5 + uSeed + mouseOffset + waveInput;
-        float d1 = snoise(p * 2.5 + uTime * 0.05);
-        float d2 = snoise(p * 4.0 + d1 + uTime * 0.03);
-        float n = snoise(p * 3.0 + d2 * 1.5);
-        n = n * 0.5 + 0.5;
+        // Posición final de la partícula
+        gl_Position = vec4(pos, 1.0);
 
-        float lines = sin(45.0 * n + uTime * 0.1);
-        float edge = smoothstep(-0.2, 0.5, lines);
-        float mask = (1.0 - edge) * 0.08; 
-
-        vec3 colorBg = vec3(0.043, 0.043, 0.047);
-        vec3 colorVein = vec3(0.93, 0.93, 0.93);
-        vec3 finalColor = mix(colorBg, colorVein, n);
-        gl_FragColor = vec4(finalColor, mask);
+        // Tamaño con un poco de ruido y brillo
+        float sizeNoise = fract(sin(dot(uv, vec2(12.9898, 78.233))) * 43758.5453);
+        gl_PointSize = (0.5 + sizeNoise * 1.5 + (vBrightness * 0.3)) * (uResolution.y / 900.0);
       }
     `;
 
-    // Geometría del plano que cubre todo el viewport
-    const geometry = new THREE.PlaneGeometry(2, 2);
+    const fragmentShader = `
+      precision highp float;
+      varying float vBrightness;
 
-    // Vectores para el mouse y el click
-    const mousePos = new THREE.Vector2(0.5, 0.5);
-    const targetMousePos = new THREE.Vector2(0.5, 0.5);
-    const clickPos = new THREE.Vector2(-10, -10); // Fuera de pantalla al inicio
+      void main() {
+        // Dibuja cada partícula como un círculo
+        float r = distance(gl_PointCoord, vec2(0.5));
+        if (r > 0.5) discard;
 
-    // Uniforms para el shader
+        // Ajuste de opacidad según distancia al centro y brillo
+        float alpha = (1.0 - smoothstep(0.0, 0.5, r)) * (0.15 + vBrightness * 0.15);
+
+        // Color grisáceo con un toque de brillo
+        vec3 color = vec3(0.7) + (vBrightness * 0.1);
+        gl_FragColor = vec4(color, alpha);
+      }
+    `;
+
+    // ---- UNIFORMS ----
     const uniforms = {
       uTime: { value: 0 },
       uResolution: { value: new THREE.Vector2(width, height) },
-      uSeed: { value: new THREE.Vector2(Math.random() * 100, Math.random() * 100) },
-      uMouse: { value: mousePos },
-      uClickPos: { value: clickPos },
-      uClickTime: { value: -10.0 }, // Tiempo inicial lejano
+      uMouse: { value: new THREE.Vector2(0.5, 0.5) },
+      uClickPos: { value: Array.from({ length: 5 }, () => new THREE.Vector2(-10, -10)) },
+      uClickTime: { value: new Float32Array(5).fill(-10.0) },
+      uAutoPos: { value: Array.from({ length: 5 }, () => new THREE.Vector2(-10, -10)) },
+      uAutoTime: { value: new Float32Array(5).fill(-10.0) },
     };
 
-    // Material que usa nuestros shaders
+    // ---- MATERIAL Y PUNTOS ----
     const material = new THREE.ShaderMaterial({
       uniforms,
       vertexShader,
       fragmentShader,
       transparent: true,
-      depthWrite: false,
+      blending: THREE.AdditiveBlending, // brillo acumulativo
+      depthWrite: false, // no escribe profundidad
     });
 
-    // Mesh del plano
-    const mesh = new THREE.Mesh(geometry, material);
-    scene.add(mesh);
+    const points = new THREE.Points(geometry, material);
+    scene.add(points);
 
-    // --- ANIMACIÓN ---
+    // ---- ANIMACIÓN ----
     let animationFrameId: number;
+    const targetMousePos = new THREE.Vector2(0.5, 0.5);
+    let clickIdx = 0;
+    let autoIdx = 0;
+
     const animate = (time: number) => {
-      uniforms.uTime.value = time * 0.001; // Convertimos a segundos
-      mousePos.lerp(targetMousePos, 0.04); // Suavizado del movimiento del mouse
-      renderer.render(scene, camera); // Renderizamos la escena
-      animationFrameId = requestAnimationFrame(animate); // Loop
+      uniforms.uTime.value = time * 0.001;
+      uniforms.uMouse.value.lerp(targetMousePos, 0.05); // suaviza movimiento del mouse
+      renderer.render(scene, camera);
+      animationFrameId = requestAnimationFrame(animate);
     };
     animate(0);
 
-    // --- EVENTOS ---
+    // ---- ONDAS AUTOMÁTICAS ----
+    const triggerAutoWave = () => {
+      const side = Math.floor(Math.random() * 4);
+      let x = 0.5,
+        y = 0.5;
+      if (side === 0) {
+        x = -0.2;
+        y = Math.random();
+      } else if (side === 1) {
+        x = 1.2;
+        y = Math.random();
+      } else if (side === 2) {
+        x = Math.random();
+        y = 1.2;
+      } else {
+        x = Math.random();
+        y = -0.2;
+      }
+
+      uniforms.uAutoPos.value[autoIdx].set(x, y);
+      uniforms.uAutoTime.value[autoIdx] = uniforms.uTime.value;
+      autoIdx = (autoIdx + 1) % 5;
+    };
+
+    const autoWaveInterval = setInterval(triggerAutoWave, 8000);
+
+    // ---- EVENTOS DEL USUARIO ----
     const handleMouseMove = (e: MouseEvent) => {
       const rect = container.getBoundingClientRect();
       targetMousePos.set((e.clientX - rect.left) / rect.width, 1.0 - (e.clientY - rect.top) / rect.height);
@@ -166,8 +239,12 @@ export default function MainBackground() {
 
     const handleClick = (e: MouseEvent) => {
       const rect = container.getBoundingClientRect();
-      uniforms.uClickPos.value.set((e.clientX - rect.left) / rect.width, 1.0 - (e.clientY - rect.top) / rect.height);
-      uniforms.uClickTime.value = uniforms.uTime.value;
+      const x = (e.clientX - rect.left) / rect.width;
+      const y = 1.0 - (e.clientY - rect.top) / rect.height;
+
+      uniforms.uClickPos.value[clickIdx].set(x, y);
+      uniforms.uClickTime.value[clickIdx] = uniforms.uTime.value;
+      clickIdx = (clickIdx + 1) % 5;
     };
 
     const handleResize = () => {
@@ -181,20 +258,23 @@ export default function MainBackground() {
     window.addEventListener("mousemove", handleMouseMove);
     window.addEventListener("mousedown", handleClick);
 
-    // Cleanup al desmontar
+    // ---- CLEANUP ----
     return () => {
       window.removeEventListener("resize", handleResize);
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mousedown", handleClick);
+      clearInterval(autoWaveInterval);
       cancelAnimationFrame(animationFrameId);
-      container.removeChild(renderer.domElement);
+      if (container.contains(renderer.domElement)) {
+        container.removeChild(renderer.domElement);
+      }
       geometry.dispose();
       material.dispose();
       renderer.dispose();
     };
   }, []);
 
-  // Div que contendrá el canvas de Three.js
+  // Div que contiene el canvas, full screen y sin interferir con UI
   return (
     <div
       ref={mountRef}
@@ -205,9 +285,11 @@ export default function MainBackground() {
         width: "100%",
         height: "100%",
         zIndex: 0,
-        pointerEvents: "none", // No bloquea interacciones
+        pointerEvents: "none",
         overflow: "hidden",
-        opacity: 0.5, // Transparencia del fondo
+        backgroundColor: "transparent",
+        opacity: "1",
+        borderRadius: "8px",
       }}
     />
   );
